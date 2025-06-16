@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>en la niebla</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: white;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  #scroll-container {
+    width: 100vw;
+    height: 100vh;
+    overflow: auto; /* Scroll solo si contenido más grande */
+    background: white;
+    position: relative;
+  }
+  #content-space {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    background: white;
+  }
+  #fixed-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform-origin: center center;
+    transition: transform 0.3s ease;
+    cursor: grab;
+  }
+  #fixed-content img {
+    max-width: 20px; /* tamaño base */
+    height: auto;
+    display: block;
+    pointer-events: none;
+    user-select: none;
+  }
+  #cloud-text {
+    position: absolute;
+    white-space: nowrap;     /* evita saltos de línea */
+    max-width: none;         /* sin límite de ancho */
+    text-align: center;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(var(--textScale, 1));
+    transform-origin: center center; /* Asegura que el zoom se aplique desde el centro */
+    color: rgb(255, 255, 255);
+    font-size: 700%;
+    font-family: Helvetica, Arial, sans-serif;
+    font-weight: 700; /* peso más fino */
+    pointer-events: none;
+    user-select: none;
+    transition: color 0.1s ease;
+    mix-blend-mode: screen;
+  }
+  #zoom-bar {
+    position: fixed;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 6px;
+    background: rgba(218, 218, 218, 0.3);
+    border-radius: 100px;
+    overflow: hidden;
+    z-index: 100;
+    cursor: pointer;
+    user-select: none;
+  }
+  #zoom-progress {
+    height: 100%;
+    background: rgba(155, 155, 155, 0.6);
+    width: 0%;
+    transition: width 0.01s ease-out;
+    pointer-events: none;
+    position: relative;
+  }
+</style>
+</head>
+<body>
+  <div id="zoom-bar">
+    <div id="zoom-progress"></div>
+  </div>
+  
+  <div id="scroll-container">
+   <div id="content-space">
+     <div id="fixed-content">
+       <img src="img/fog.png" alt="Nube" />
+       <div id="cloud-text">en la nube</div>
+     </div>
+    </div>
+  </div>
+
+<script>
+  const container = document.getElementById('scroll-container');
+  const contentSpace = document.getElementById('content-space');
+  const fixedContent = document.getElementById('fixed-content');
+  const cloudText = document.getElementById('cloud-text');
+  const zoomBar = document.getElementById('zoom-bar');
+  const zoomProgress = document.getElementById('zoom-progress');
+  const minScale = 1;   // Zoom mínimo (sin zoom out)
+  const maxScale = 3000; // Zoom máximo
+  let scale = minScale;  // Escala inicial
+  let isDragging = false;
+  let isHoveringZoomBar = false; // 👈 Nueva bandera para saber si el cursor está en la barra
+  let isPreviewing = false;
+
+  function updateContentSpaceSize() {
+    const baseWidth = window.innerWidth;
+    const baseHeight = window.innerHeight;
+    contentSpace.style.width = `${baseWidth * scale}px`;
+    contentSpace.style.height = `${baseHeight * scale}px`;
+  }
+
+  function centerScroll() {
+    const scrollLeft = (contentSpace.offsetWidth - container.clientWidth) / 2;
+    const scrollTop = (contentSpace.offsetHeight - container.clientHeight) / 2;
+    container.scrollLeft = scrollLeft;
+    container.scrollTop = scrollTop;
+  }
+
+  function updateZoomBar(scale) {
+    const minLog = Math.log(minScale); // log(1) = 0
+    const maxLog = Math.log(maxScale); // log(3000) ≈ 8.006
+    const currentLog = Math.log(scale);
+    const progress = (currentLog - minLog) / (maxLog - minLog);
+    const bar = document.getElementById('zoom-progress');
+    bar.style.width = `${Math.min(100, progress * 100)}%`;
+  }
+
+// Nueva función que calcula escala desde la posición X
+  function calculateScaleFromBar(clientX) {
+    const barRect = zoomBar.getBoundingClientRect();
+    const x = clientX - barRect.left;
+    const percentage = Math.min(1, Math.max(0, x / barRect.width));
+    const minLog = Math.log(minScale);      // log(1) = 0
+    const maxLog = Math.log(maxScale);      // log(3000)
+    const logScale = minLog + percentage * (maxLog - minLog);
+    return Math.exp(logScale);              // inverso del log
+  }
+
+  function updateOpacity(scale) {
+    const fadeStart = 4;  // Zoom desde el que empieza a aparecer el texto
+    const fadeEnd = 20000;   // Zoom al que el texto está 100% visible y la imagen 0%
+     if (scale < fadeStart) {
+      cloudText.style.color = 'rgba(255,255,255,0.1)'; // texto invisible
+      fixedContent.querySelector('img').style.opacity = '1'; // imagen visible
+     } else if (scale > fadeEnd) {
+      cloudText.style.color = 'rgba(255,255,255,1)'; // texto visible
+      fixedContent.querySelector('img').style.opacity = '0.1'; // imagen invisible
+     } else {
+      // entre fadeStart y fadeEnd hacemos transición suave
+      const progress = (scale - fadeStart) / (fadeEnd - fadeStart);
+      const easedProgress = Math.sqrt(progress); // raíz cuadrada para suavizar
+      cloudText.style.color = `rgba(255,255,255,${easedProgress})`;
+      fixedContent.querySelector('img').style.opacity = `${1 - easedProgress}`;
+     }
+  } 
+ 
+  function applyZoom(newScale) {
+    scale = newScale;
+    cloudText.style.setProperty('--textScale', `${0.6 / scale}`); //tamaño texto
+    fixedContent.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    updateContentSpaceSize();
+    centerScroll();
+    updateOpacity(scale);
+    updateZoomBar(scale);
+  }
+
+  function smoothZoomTo(targetScale) {
+    const duration = 500; // duración en ms
+    const startScale = scale;
+    const startTime = performance.now();
+
+    function animate(time) {
+      const elapsed = time - startTime;
+      const t = Math.min(elapsed / duration, 1); // de 0 a 1
+      const easedT = t < 0.5
+      ? 2 * t * t         // ease-in (aceleración suave)
+      : -1 + (4 - 2 * t) * t; // ease-out
+
+      const currentScale = startScale + (targetScale - startScale) * easedT;
+      applyZoom(currentScale);
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+    }
+  }
+
+  requestAnimationFrame(animate);
+}
+
+// 🔍 Interacciones del usuario
+// Clic en la barra de zoom
+  zoomBar.addEventListener('click', (e) => {
+     if (!isDragging) {
+    // Evita que el sombreado se actualice antes de tiempo
+    const newScale = calculateScaleFromBar(e.clientX);
+     // Apagamos el preview para que no interfiera
+    isPreviewing = false;
+    // Reseteamos el sombreado al zoom actual (no al preview)
+    updateZoomBar(scale);
+    // Luego hacemos el zoom suave
+    smoothZoomTo(newScale);
+    }
+  });
+
+  zoomBar.addEventListener('mouseenter', () => {
+    isPreviewing = true;
+  });
+
+  zoomBar.addEventListener('mouseleave', () => {
+    isPreviewing = false;
+    updateZoomBar(scale); // ← vuelve al sombreado real del zoom actual
+  });
+  
+// Arrastre sobre la barra de zoom
+  zoomBar.addEventListener('mousedown', (e) => {
+    isDragging = true;
+
+    const mouseUpHandler = (upEvent) => {
+      document.removeEventListener('mouseup', mouseUpHandler);
+      isDragging = false;
+
+      const moved = Math.abs(e.clientX - upEvent.clientX) > 3;
+      if (!moved) {
+        smoothZoomTo(calculateScaleFromBar(e.clientX));
+      }
+    };
+    document.addEventListener('mouseup', mouseUpHandler);
+  });
+
+// ✅ Detectar entrada real
+zoomBar.addEventListener('mouseover', (e) => {
+  if (!isDragging) {
+    isHoveringZoomBar = true;
+  }
+});
+
+// ✅ Detectar salida real solo si el cursor ya no está en la barra
+zoomBar.addEventListener('mouseout', (e) => {
+  const related = e.relatedTarget;
+  if (!zoomBar.contains(related)) {
+    isHoveringZoomBar = false;
+    updateZoomBar(scale); // Volver al zoom real
+  }
+});
+
+// Movimiento del ratón: previsualiza si no arrastras, aplica zoom si arrastras
+  document.addEventListener('mousemove', (e) => {
+    if (isDragging || isPreviewing){
+      const previewScale = calculateScaleFromBar(e.clientX);
+      updateZoomBar(previewScale);
+      applyZoom(calculateScaleFromBar(e.clientX)); // Zoom real durante arrastre
+    } else if (isHoveringZoomBar) {
+    const previewScale = calculateScaleFromBar(e.clientX);
+    updateZoomBar(previewScale); // Solo mueve la barra visual
+    }
+  });
+// Evento para el zoom proporcional y más rápido con la escala actual
+  container.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const baseSpeed = 0.1;
+      let delta = e.deltaY > 0 ? -baseSpeed * scale : baseSpeed * scale;
+      const maxDeltaSpeed = 50; // ajusta este valor si quieres un límite diferente
+      delta = Math.sign(delta) * Math.min(Math.abs(delta), maxDeltaSpeed);
+      let newScale = scale + delta;
+      // Limitar entre minScale y maxScale
+      newScale = Math.min(maxScale, Math.max(minScale, newScale));
+
+      if (newScale !== scale) {
+        requestAnimationFrame(() => {
+          applyZoom(newScale);
+      });
+     }
+    }
+  }, { passive: false });
+
+// Al cargar la página, aplicamos zoom mínimo y centramos
+  window.onload = () => {
+    applyZoom(minScale);
+  };
+
+// Al redimensionar, ajustamos y centramos
+  window.onresize = () => {
+    updateContentSpaceSize();
+    centerScroll();
+  };
+</script>
+</body>
+</html>
